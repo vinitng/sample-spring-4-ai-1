@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Core Banking Portal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        :root {
+            --primary: #1e3a8a;
+            --primary-hover: #1d4ed8;
+            --danger: #dc2626;
+            --danger-hover: #b91c1c;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --border: #e2e8f0;
+            --text: #0f172a;
+            --text-muted: #64748b;
+        }
+        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: var(--bg); color: var(--text); margin: 0; padding: 2rem; }
+        .container { max-width: 1050px; margin: 0 auto; }
+        h1 { margin-bottom: 0.5rem; color: var(--primary); }
+        p.subtitle { color: var(--text-muted); margin-top: 0; margin-bottom: 2rem; }
+
+        .grid { display: grid; grid-template-columns: 360px 1fr; gap: 2rem; }
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+
+        label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--text); }
+        input, select { width: 100%; padding: 0.55rem; margin-bottom: 1rem; border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem; }
+        input:focus, select:focus { outline: 2px solid var(--primary); }
+
+        .btn-group { display: flex; gap: 0.5rem; }
+        button { cursor: pointer; border: none; border-radius: 4px; padding: 0.6rem 1rem; font-weight: 600; font-size: 0.85rem; transition: background 0.15s; }
+        .btn-primary { background: var(--primary); color: #fff; width: 100%; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-danger:hover { background: var(--danger-hover); }
+        .btn-secondary { background: #e2e8f0; color: #1e293b; }
+        .btn-secondary:hover { background: #cbd5e1; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+        th, td { text-align: left; padding: 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+        th { color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+        .badge-active { background: #dcfce7; color: #166534; }
+        .badge-pending { background: #fef9c3; color: #854d0e; }
+
+        #toast { display: none; padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 4px; font-size: 0.85rem; }
+        .toast-success { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+        .toast-error { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Core Banking Management</h1>
+    <p class="subtitle">Real-time UI for Customer and Account Management</p>
+
+    <div id="toast"></div>
+
+    <div class="grid">
+        <!-- Form Card -->
+        <div class="card">
+            <h3 id="formTitle" style="margin-top:0;">Add New Customer</h3>
+            <form id="customerForm">
+                <label for="externalRefId">External Reference ID</label>
+                <input type="text" id="externalRefId" placeholder="e.g. CUST-101" required />
+
+                <label for="fullName">Full Name</label>
+                <input type="text" id="fullName" placeholder="e.g. Rahul Sharma" required />
+
+                <label for="email">Email Address</label>
+                <input type="email" id="email" placeholder="e.g. rahul@example.com" required />
+
+                <div id="accountFields">
+                    <label for="accountNumber">Initial Account Number</label>
+                    <input type="text" id="accountNumber" placeholder="e.g. IN91CBIN000123" />
+
+                    <label for="initialBalance">Initial Balance (INR)</label>
+                    <input type="number" step="0.01" id="initialBalance" placeholder="0.00" value="10000.00" />
+                </div>
+
+                <div class="btn-group">
+                    <button type="submit" id="submitBtn" class="btn-primary">Create Customer</button>
+                    <button type="button" id="cancelBtn" class="btn-secondary" style="display:none;" onclick="resetForm()">Cancel</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Table Card -->
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                <h3 style="margin:0;">Registered Customers</h3>
+                <button class="btn-secondary" onclick="loadCustomers()">Refresh</button>
+            </div>
+
+            <table>
+                <thead>
+                <tr>
+                    <th>Ref ID</th>
+                    <th>Name / Email</th>
+                    <th>Status</th>
+                    <th>Accounts</th>
+                    <th>Actions</th>
+                </tr>
+                </thead>
+                <tbody id="customerTableBody">
+                <tr><td colspan="5" style="text-align:center; color: var(--text-muted);">Loading customers...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 1. Point to the UI abstraction BFF endpoint
+    const UI_API_BASE = '/api/v1/ui/banking';
+    let isEditing = false;
+
+    // Load table data from the dashboard view model
+    async function loadCustomers() {
+        try {
+            const res = await fetch(`${UI_API_BASE}/dashboard`);
+            const envelope = await res.json();
+
+            if (!res.ok || !envelope.success) {
+                throw new Error(envelope.message || 'Failed to fetch dashboard data');
+            }
+
+            // envelope.data contains List<CustomerDashboardView>
+            renderTable(envelope.data);
+        } catch (err) {
+            showToast(err.message, true);
+        }
+    }
+
+    // Render using the flattened CustomerDashboardView properties
+    function renderTable(customers) {
+        const tbody = document.getElementById('customerTableBody');
+        if (!customers || customers.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No records found.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = customers.map(c => `
+          <tr>
+            <td><strong>${c.externalRefId}</strong></td>
+            <td>
+              <div>${c.displayName || c.fullName}</div>
+              <div style="color:var(--text-muted); font-size:0.75rem;">${c.email}</div>
+            </td>
+            <td>
+              <span class="badge ${c.status === 'ACTIVE' ? 'badge-active' : 'badge-pending'}">${c.status}</span>
+            </td>
+            <td>
+              ${
+            c.accounts && c.accounts.length
+                ? c.accounts.map(a => `${a.accountNumber} (<strong>${a.displayBalance}</strong>)`).join('<br/>')
+                : '<span style="color:var(--text-muted);">None</span>'
+        }
+            </td>
+            <td>
+              <button class="btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="startEdit('${c.externalRefId}', '${c.displayName || c.fullName}', '${c.email}')">Edit</button>
+              <button class="btn-danger" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="deleteCustomer('${c.externalRefId}')">Del</button>
+            </td>
+          </tr>
+        `).join('');
+    }
+
+    // Handle Form Submit (Create or Update)
+    document.getElementById('customerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const externalRefId = document.getElementById('externalRefId').value.trim();
+        const fullName = document.getElementById('fullName').value.trim();
+        const email = document.getElementById('email').value.trim();
+
+        if (isEditing) {
+            // UPDATE via UI Adapter
+            try {
+                const res = await fetch(`${UI_API_BASE}/customers/${encodeURIComponent(externalRefId)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ externalRefId, fullName, email })
+                });
+                const envelope = await res.json();
+                if (!res.ok || !envelope.success) throw new Error(envelope.message || 'Failed to update record');
+
+                showToast(envelope.message || `Customer ${externalRefId} updated successfully.`);
+                resetForm();
+                loadCustomers();
+            } catch (err) {
+                showToast(err.message, true);
+            }
+        } else {
+            // CREATE via UI Adapter
+            const accountNumber = document.getElementById('accountNumber').value.trim();
+            const initialBalance = parseFloat(document.getElementById('initialBalance').value || 0);
+
+            try {
+                const res = await fetch(`${UI_API_BASE}/customers`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ externalRefId, fullName, email, accountNumber, initialBalance })
+                });
+                const envelope = await res.json();
+                if (!res.ok || !envelope.success) throw new Error(envelope.message || 'Validation or duplicate key error');
+
+                showToast(envelope.message || 'Customer onboarded successfully.');
+                resetForm();
+                loadCustomers();
+            } catch (err) {
+                showToast(err.message, true);
+            }
+        }
+    });
+
+    function startEdit(refId, name, mail) {
+        isEditing = true;
+        document.getElementById('formTitle').innerText = 'Edit Customer';
+        document.getElementById('submitBtn').innerText = 'Update Customer';
+        document.getElementById('cancelBtn').style.display = 'inline-block';
+
+        const refInput = document.getElementById('externalRefId');
+        refInput.value = refId;
+        refInput.disabled = true;
+
+        document.getElementById('fullName').value = name;
+        document.getElementById('email').value = mail;
+        document.getElementById('accountFields').style.display = 'none';
+    }
+
+    function resetForm() {
+        isEditing = false;
+        document.getElementById('formTitle').innerText = 'Add New Customer';
+        document.getElementById('submitBtn').innerText = 'Create Customer';
+        document.getElementById('cancelBtn').style.display = 'none';
+
+        const refInput = document.getElementById('externalRefId');
+        refInput.value = '';
+        refInput.disabled = false;
+
+        document.getElementById('fullName').value = '';
+        document.getElementById('email').value = '';
+        document.getElementById('accountNumber').value = '';
+        document.getElementById('initialBalance').value = '10000.00';
+        document.getElementById('accountFields').style.display = 'block';
+    }
+
+    async function deleteCustomer(refId) {
+        if (!confirm(`Are you sure you want to delete customer ${refId}? All associated accounts will be deleted.`)) return;
+
+        try {
+            const res = await fetch(`${UI_API_BASE}/customers/${encodeURIComponent(refId)}`, {
+                method: 'DELETE'
+            });
+            const envelope = await res.json();
+            if (!res.ok || !envelope.success) throw new Error(envelope.message || 'Failed to delete customer');
+
+            showToast(envelope.message || `Customer ${refId} removed.`);
+            loadCustomers();
+        } catch (err) {
+            showToast(err.message, true);
+        }
+    }
+
+    function showToast(msg, isError = false) {
+        const toast = document.getElementById('toast');
+        toast.innerText = msg;
+        toast.className = isError ? 'toast-error' : 'toast-success';
+        toast.style.display = 'block';
+        setTimeout(() => { toast.style.display = 'none'; }, 4000);
+    }
+
+    // Initial load
+    loadCustomers();
+</script>
+</body>
+</html>
